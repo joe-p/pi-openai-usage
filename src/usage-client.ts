@@ -3,7 +3,7 @@ export const DEFAULT_USAGE_REQUEST_TIMEOUT_MS = 10_000;
 
 export type UsageRequestCredentials = {
   accessToken: string;
-  accountId: string;
+  accountId?: string;
 };
 
 export type UsageFetchErrorKind = "auth" | "http" | "network" | "timeout" | "aborted" | "parse";
@@ -22,12 +22,19 @@ export type FetchCodexUsageOptions = {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Absolute URL of the usage endpoint. Defaults to the ChatGPT Codex backend.
+   * Custom endpoints (proxies) pass their own base URL + usage path here.
+   */
+  endpointUrl?: string;
 };
+
+export type FetchUsageOptions = Pick<FetchCodexUsageOptions, "signal" | "endpointUrl">;
 
 export type UsageClientPort = {
   fetchUsage(
     credentials: UsageRequestCredentials,
-    options?: Pick<FetchCodexUsageOptions, "signal">,
+    options?: FetchUsageOptions,
   ): Promise<UsageFetchResult>;
 };
 
@@ -40,6 +47,7 @@ export async function fetchCodexUsage(
 ): Promise<UsageFetchResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_USAGE_REQUEST_TIMEOUT_MS;
+  const endpointUrl = options.endpointUrl ?? USAGE_ENDPOINT;
   const controller = new AbortController();
   let abortReason: typeof TIMEOUT_ABORT_MARKER | typeof EXTERNAL_ABORT_MARKER | undefined;
 
@@ -54,12 +62,8 @@ export async function fetchCodexUsage(
   });
 
   try {
-    const response = await fetchImpl(USAGE_ENDPOINT, {
-      headers: {
-        accept: "*/*",
-        authorization: `Bearer ${credentials.accessToken}`,
-        "chatgpt-account-id": credentials.accountId,
-      },
+    const response = await fetchImpl(endpointUrl, {
+      headers: buildUsageHeaders(credentials),
       signal: controller.signal,
     });
 
@@ -88,6 +92,17 @@ export async function fetchCodexUsage(
     clearTimeout(timeoutHandle);
     removeExternalAbortListener();
   }
+}
+
+export function buildUsageHeaders(credentials: UsageRequestCredentials): Record<string, string> {
+  const headers: Record<string, string> = {
+    accept: "*/*",
+    authorization: `Bearer ${credentials.accessToken}`,
+  };
+  if (credentials.accountId !== undefined && credentials.accountId.length > 0) {
+    headers["chatgpt-account-id"] = credentials.accountId;
+  }
+  return headers;
 }
 
 function classifyHttpError(status: number): UsageFetchError {

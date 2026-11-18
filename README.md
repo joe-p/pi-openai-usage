@@ -69,7 +69,7 @@ Running `/openai-usage-settings` with no arguments opens a ten-row menu for comm
 | Refresh interval | `15s`, `30s`, `1m`, `2m`, `5m`, `10m` |
 | Hide label | `No`, `Yes` |
 
-`Display` controls whether the status line is shown normally, hidden, or always shown. Normal display appears for OAuth-backed `openai` and `openai-codex` models; `Always` shows usage regardless of the selected model. `Hide label` controls the `Usage:` prefix. If a JSON config uses a custom color scheme or custom bar style, the menu may show `custom (JSON)` as the current value; selecting a preset replaces it with that preset.
+`Display` controls whether the status line is shown normally, hidden, or always shown. Normal display appears for OAuth-backed `openai` and `openai-codex` models, and for models matching a configured `customEndpoints` pattern; `Always` shows usage regardless of the selected model. `Hide label` controls the `Usage:` prefix. If a JSON config uses a custom color scheme or custom bar style, the menu may show `custom (JSON)` as the current value; selecting a preset replaces it with that preset.
 
 ## Configuration files
 
@@ -96,6 +96,7 @@ Use the interactive menu for common display settings. Advanced visual customizat
 | `widgets` | object | see below | Usage and reset widgets. |
 | `bar` | object | see below | Progress-bar style and width. |
 | `colors` | object | see below | Color scheme, target, gradients, and custom stops. |
+| `customEndpoints` | array | `[]` | Proxy usage endpoints; see [Custom (proxy) endpoints](#custom-proxy-endpoints). |
 
 ### `display`
 
@@ -187,9 +188,37 @@ Result:
 
 To use the neutral footer text colour instead of usage-coloured values, set Color scheme to `none`.
 
+## Custom (proxy) endpoints
+
+If you run Codex traffic through a proxy that exposes the ChatGPT usage endpoint, register it under `customEndpoints`. Models matching one of the endpoint's glob patterns read usage from that endpoint instead of `chatgpt.com`, and visibility no longer depends on the `openai`/`openai-codex` providers.
+
+```json
+{
+  "customEndpoints": [
+    {
+      "name": "model-proxy",
+      "baseUrl": "http://100.101.224.41:8080",
+      "models": ["model-proxy/codex/*"],
+      "auth": { "provider": "model-proxy" }
+    }
+  ]
+}
+```
+
+| Key | Type | Default | Accepted values / notes |
+| --- | --- | --- | --- |
+| `customEndpoints[].name` | string | required | Label used in diagnostics and error messages. |
+| `customEndpoints[].baseUrl` | string | required | Proxy origin; trailing slashes are stripped. |
+| `customEndpoints[].usagePath` | string | `"/backend-api/wham/usage"` | Appended to `baseUrl`; leading slash added when missing. |
+| `customEndpoints[].models` | string[] | required | Glob patterns matched against `provider/modelId` and `modelId`. `*` and `?` are supported. |
+| `customEndpoints[].auth.provider` | string | — | Pi provider whose API key (`auth.json` / `models.json`) is sent as a Bearer token. |
+| `customEndpoints[].auth.apiKey` | string | — | Literal Bearer token. Takes precedence over `auth.provider`. |
+
+Requests to a custom endpoint send only `accept` and `authorization` headers; `chatgpt-account-id` is sent only when the resolved credentials include an account id. The `openai-codex` OAuth login is not required for custom endpoint models.
+
 ## Privacy and auth
 
-The extension uses Pi's existing `openai-codex` OAuth credentials to request Codex usage from ChatGPT's usage endpoint. Diagnostics are designed for troubleshooting and do not print access tokens.
+The extension uses Pi's existing `openai-codex` OAuth credentials to request Codex usage from ChatGPT's usage endpoint, or a configured custom endpoint's API key. Diagnostics are designed for troubleshooting and do not print access tokens.
 
 ## Reference attribution
 

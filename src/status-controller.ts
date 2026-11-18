@@ -5,7 +5,14 @@ import {
   type CodexCredentialResolution,
   type CodexModelRegistry,
 } from "./auth";
-import { type LoadedUsageConfig, type UsageConfig, loadUsageConfig } from "./config";
+import {
+  customEndpointUsageUrl,
+  type CustomEndpointConfig,
+  type LoadedUsageConfig,
+  type UsageConfig,
+  loadUsageConfig,
+} from "./config";
+import { findCustomEndpointForModel, resolveCustomEndpointCredentials } from "./custom-endpoints";
 import type { UsageColorTheme } from "./color";
 import {
   appendUsageRefreshFailureMarker,
@@ -14,7 +21,12 @@ import {
   formatUsageRefreshFailedStatusLine,
   formatUsageStatusLine,
 } from "./format";
-import { fetchCodexUsage, type UsageClientPort, type UsageFetchError } from "./usage-client";
+import {
+  fetchCodexUsage,
+  type UsageClientPort,
+  type UsageFetchError,
+  type UsageRequestCredentials,
+} from "./usage-client";
 import { createUsageRefreshCoordinator, type UsageRefreshCoordinator } from "./usage-refresh-coordinator";
 import { createUsageStateStore, type UsageStateStore } from "./usage-state";
 import { decideUsageVisibility, type UsageModel, type UsageModelRegistry } from "./visibility";
@@ -110,6 +122,7 @@ export function registerUsageStatusController(
     const applyId = ++activeApplyId;
 
     const { effective: initialConfig } = loadConfig();
+    const initialEndpoint = findCustomEndpointForModel(initialConfig.customEndpoints, ctx.model);
 
     if (!isCurrentApply(applyId)) {
       return;
@@ -124,6 +137,7 @@ export function registerUsageStatusController(
       showAlways: initialConfig.display.showAlways,
       model: ctx.model,
       modelRegistry: ctx.modelRegistry,
+      customEndpoints: initialConfig.customEndpoints,
     });
 
     if (!initialVisibility.visible) {
@@ -132,11 +146,24 @@ export function registerUsageStatusController(
       return;
     }
 
-    const credentials = await resolveCredentials(ctx);
+    let requestedCredentials:
+      | { ok: true; credentials: UsageRequestCredentials }
+      | { ok: false; message: string };
+    if (initialEndpoint === undefined) {
+      const resolution = await resolveCredentials(ctx);
+      requestedCredentials = resolution.ok
+        ? { ok: true, credentials: resolution.credentials }
+        : { ok: false, message: resolution.error.message };
+    } else {
+      requestedCredentials = await resolveCustomEndpointCredentials(
+        initialEndpoint,
+        ctx.modelRegistry,
+      );
+    }
     if (!isCurrentApply(applyId)) {
       return;
     }
-    if (!credentials.ok) {
+    if (!requestedCredentials.ok) {
       stopRefreshTimer();
       publishLoginRequiredStatus(ctx);
       return;
@@ -148,10 +175,11 @@ export function registerUsageStatusController(
     }
 
     const refreshResult = await refreshCoordinator.refresh({
-      credentials: credentials.credentials,
+      credentials: requestedCredentials.credentials,
       signal: ctx.signal,
       modelId: ctx.model?.id,
       staleAfterMs: initialConfig.refreshIntervalMs,
+      endpointUrl: initialEndpoint === undefined ? undefined : customEndpointUsageUrl(initialEndpoint),
     });
 
     if (!isCurrentApply(applyId)) {
@@ -164,6 +192,7 @@ export function registerUsageStatusController(
       showAlways: latestConfig.display.showAlways,
       model: ctx.model,
       modelRegistry: ctx.modelRegistry,
+      customEndpoints: latestConfig.customEndpoints,
     });
 
     if (!latestConfig.enabled || !latestVisibility.visible) {

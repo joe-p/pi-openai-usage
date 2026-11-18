@@ -123,6 +123,21 @@ export type ColorConfig = {
   custom: CustomColorConfig;
 };
 
+export const DEFAULT_CUSTOM_ENDPOINT_USAGE_PATH = "/backend-api/wham/usage";
+
+export type CustomEndpointAuthConfig = {
+  provider?: string;
+  apiKey?: string;
+};
+
+export type CustomEndpointConfig = {
+  name: string;
+  baseUrl: string;
+  usagePath: string;
+  models: string[];
+  auth: CustomEndpointAuthConfig;
+};
+
 export type UsageConfig = {
   enabled: boolean;
   refreshIntervalMs: number;
@@ -130,7 +145,14 @@ export type UsageConfig = {
   widgets: WidgetConfig;
   bar: BarConfig;
   colors: ColorConfig;
+  customEndpoints: CustomEndpointConfig[];
 };
+
+export function customEndpointUsageUrl(endpoint: CustomEndpointConfig): string {
+  const baseUrl = endpoint.baseUrl.replace(/\/+$/u, "");
+  const usagePath = endpoint.usagePath.startsWith("/") ? endpoint.usagePath : `/${endpoint.usagePath}`;
+  return `${baseUrl}${usagePath}`;
+}
 
 export type ConfigPaths = {
   project: string;
@@ -227,6 +249,7 @@ export const DEFAULT_USAGE_CONFIG: UsageConfig = {
       stops: cloneColorStops(DEFAULT_COLOR_STOPS),
     },
   },
+  customEndpoints: [],
 };
 
 export function usageConfigPaths(options: LoadUsageConfigOptions = {}): ConfigPaths {
@@ -294,6 +317,43 @@ function normalizeUsageConfig(
     widgets: normalizeWidgetConfig(projectRaw, globalRaw),
     bar: normalizeBarConfig(projectRaw, globalRaw),
     colors: normalizeColorConfig(projectRaw, globalRaw),
+    customEndpoints: normalizeCustomEndpoints(
+      firstConfigValue(projectRaw, globalRaw, ["customEndpoints"], Array.isArray) ?? [],
+    ),
+  };
+}
+
+function normalizeCustomEndpoints(rawEndpoints: readonly unknown[]): CustomEndpointConfig[] {
+  return rawEndpoints
+    .map((entry): CustomEndpointConfig | undefined => normalizeCustomEndpoint(entry))
+    .filter((entry): entry is CustomEndpointConfig => entry !== undefined);
+}
+
+function normalizeCustomEndpoint(rawEndpoint: unknown): CustomEndpointConfig | undefined {
+  if (!isRecord(rawEndpoint)) return undefined;
+
+  const name = isNonEmptyString(rawEndpoint.name) ? rawEndpoint.name.trim() : undefined;
+  const baseUrl = isNonEmptyString(rawEndpoint.baseUrl) ? rawEndpoint.baseUrl.trim() : undefined;
+  if (name === undefined || baseUrl === undefined) return undefined;
+
+  const models = Array.isArray(rawEndpoint.models)
+    ? rawEndpoint.models.filter((model): model is string => isNonEmptyString(model))
+    : [];
+  if (models.length === 0) return undefined;
+
+  const rawAuth = isRecord(rawEndpoint.auth) ? rawEndpoint.auth : {};
+  const auth: CustomEndpointAuthConfig = {};
+  if (isNonEmptyString(rawAuth.provider)) auth.provider = rawAuth.provider.trim();
+  if (isNonEmptyString(rawAuth.apiKey)) auth.apiKey = rawAuth.apiKey.trim();
+
+  return {
+    name,
+    baseUrl: baseUrl.replace(/\/+$/u, ""),
+    usagePath: isNonEmptyString(rawEndpoint.usagePath)
+      ? rawEndpoint.usagePath.trim()
+      : DEFAULT_CUSTOM_ENDPOINT_USAGE_PATH,
+    models,
+    auth,
   };
 }
 

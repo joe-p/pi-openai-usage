@@ -8,6 +8,8 @@ export type UsageRefreshOptions = {
   modelId?: string;
   staleAfterMs?: number;
   force?: boolean;
+  /** Custom endpoint URL; defaults to the ChatGPT Codex usage backend. */
+  endpointUrl?: string;
 };
 
 export type UsageRefreshResult =
@@ -101,7 +103,10 @@ export function createUsageRefreshCoordinator(
     const attemptedAt = now();
     usageState.recordFetchAttempt(attemptedAt);
 
-    const result = await dependencies.usageClient.fetchUsage(options.credentials, { signal });
+    const result = await dependencies.usageClient.fetchUsage(options.credentials, {
+      signal,
+      endpointUrl: options.endpointUrl,
+    });
 
     if (!result.ok) {
       usageState.recordFetchError(result.error, attemptedAt);
